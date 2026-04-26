@@ -27,10 +27,11 @@ If you enable it after the session is already back at the normal user-input stag
 ## What you will see
 
 - A long-lived toast titled `Watchdog mode` appears while watchdog is active for the current root session.
-- The toast shows four fields:
+- The toast shows five fields:
   - `status`
   - `input`
   - `threshold`
+  - `continues`
   - `last score`
 - Short result toasts use severity on purpose:
   - `success`: judge passed, watchdog auto-paused

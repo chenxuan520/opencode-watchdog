@@ -539,6 +539,7 @@ const tui: TuiPlugin = async (api, options) => {
         `status: ${modeStatusLabel(state)}`,
         `input: ${previewLabel(state.anchorText)}`,
         `threshold: ${state.threshold}`,
+        `continues: ${state.continueCount}/${config.maxContinues}`,
         `last score: ${scoreText}`,
       ]
         .filter(Boolean)

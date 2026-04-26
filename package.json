@@ -1,6 +1,6 @@
 {
   "name": "opencode-watchdog",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Toggle-based watchdog judge plugin for the OpenCode TUI",
   "type": "module",
   "license": "MIT",
