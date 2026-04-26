@@ -3,14 +3,6 @@ import type { Config, Plugin, PluginModule, PluginOptions } from "@opencode-ai/p
 const DEFAULT_JUDGE_AGENT = "watchdog-judge"
 const THIN_JUDGE_PROMPT = "Follow the provided system instructions exactly and return only the requested structured result."
 
-type WatchdogServerOptions = PluginOptions & {
-  judgeAgent?: string
-}
-
-function str(value: unknown, fallback: string) {
-  return typeof value === "string" && value.trim() ? value.trim() : fallback
-}
-
 function injectedJudgeShell(existing: Record<string, unknown> | undefined) {
   const existingPermission =
     existing && typeof existing.permission === "object" && existing.permission !== null && !Array.isArray(existing.permission)
@@ -38,14 +30,12 @@ function injectedJudgeShell(existing: Record<string, unknown> | undefined) {
   } as const
 }
 
-const server: Plugin = async (_input, options) => {
-  const judgeAgent = str((options as WatchdogServerOptions | undefined)?.judgeAgent, DEFAULT_JUDGE_AGENT)
-
+const server: Plugin = async (_input, _options: PluginOptions | undefined) => {
   return {
     config: async (cfg: Config) => {
       cfg.agent ??= {}
-      const existing = cfg.agent[judgeAgent]
-      cfg.agent[judgeAgent] = injectedJudgeShell(existing as Record<string, unknown> | undefined) as any
+      const existing = cfg.agent[DEFAULT_JUDGE_AGENT]
+      cfg.agent[DEFAULT_JUDGE_AGENT] = injectedJudgeShell(existing as Record<string, unknown> | undefined) as any
     },
   }
 }

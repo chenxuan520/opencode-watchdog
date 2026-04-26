@@ -8,6 +8,7 @@ const DEFAULT_THRESHOLD = 70
 const DEFAULT_SETTLE_MS = 1200
 const DEFAULT_MAX_CONTINUES = 8
 const DEFAULT_JUDGE_AGENT = "watchdog-judge"
+const DEFAULT_LANGUAGE = "zh"
 const SHORT_TOAST_MS = 2500
 const MODE_TOAST_DURATION = 24 * 60 * 60 * 1000
 const TOGGLE_DEBOUNCE_MS = 500
@@ -15,7 +16,6 @@ const PLUGIN_VERSION = "local-dev"
 const DCP_SUMMARY_PREFIX = "▣ DCP |"
 const AUTO_CONTINUE_ERROR_PROMPT = "继续，刚才执行报错了。请从失败处重试，并继续完成当前任务。"
 const AUTO_CONTINUE_EMPTY_PROMPT = "继续，刚才回复中断了。请接着上一条继续完成，不要重复已经完成的内容。"
-const DEFAULT_CONTINUE_PROMPT = "继续，刚才只是阶段性汇报。请继续完成当前任务，不要重复已经完成的内容。"
 const DEBUG_LOG_FILE = join(process.env.HOME || ".", ".local", "share", "opencode", "log", "opencode-watchdog.log")
 const JUDGE_RESPONSE_SCHEMA = {
   $schema: "http://json-schema.org/draft-07/schema#",
@@ -36,14 +36,34 @@ const JUDGE_RESPONSE_SCHEMA = {
   },
 } as const
 
-const JUDGE_SYSTEM_PROMPT = [
-  "You are a watchdog judge for an interactive coding agent.",
-  "Your only job is to decide whether the latest assistant reply is complete enough that the main agent should stop auto-continuing.",
-  "Use the anchor task as the main baseline. The score means completion confidence, not answer quality.",
-  "Return a high score only when the latest assistant reply is complete enough to stop, or when it should pause for the user instead of auto-continuing.",
-  "Return a low score when the latest assistant reply is merely a phase report, partial analysis, or unfinished execution and the main agent should continue automatically without waiting for the user.",
-  "Do not write code. Do not ask follow-up questions. Do not call tools. Return only the structured result.",
-].join("\n")
+type WatchdogLanguage = "zh" | "en"
+
+function normalizeLanguage(value: unknown): WatchdogLanguage {
+  return value === "en" ? "en" : "zh"
+}
+
+function defaultContinuePrompt(language: WatchdogLanguage) {
+  if (language === "en") {
+    return "Continue, the last reply was only a progress update. Keep working on the current task without repeating completed work. If you believe the request is already fully finished, explain why clearly."
+  }
+  return "继续，刚才只是阶段性汇报。请继续完成当前任务，不要重复已经完成的内容。如果你认为需求已经完全完成，请明确说明理由。"
+}
+
+function buildJudgeSystemPrompt(language: WatchdogLanguage) {
+  const prompt = [
+    "You are a watchdog judge for an interactive coding agent.",
+    "Your only job is to decide whether the latest assistant reply is complete enough that the main agent should stop auto-continuing.",
+    "Use the anchor task as the main baseline. The score means completion confidence, not answer quality.",
+    "Return a high score only when the latest assistant reply is complete enough to stop, or when it should pause for the user instead of auto-continuing.",
+    "If the agent is blocked and needs the user to provide clarification, permissions, environment details, credentials, manual decisions, or any other external input, treat that as a stop condition and return a high score so the user can decide.",
+    "Return a low score when the latest assistant reply is merely a phase report, partial analysis, or unfinished execution and the main agent should continue automatically without waiting for the user.",
+    language === "en"
+      ? "Write the reason in English."
+      : "Write the reason in Chinese.",
+    "Do not write code. Do not ask follow-up questions. Do not call tools. Return only the structured result.",
+  ]
+  return prompt.join("\n")
+}
 
 const TRIVIAL_CONTINUATIONS = new Set([
   "继续",
@@ -64,10 +84,10 @@ const TRIVIAL_CONTINUATIONS = new Set([
 
 type WatchdogOptions = PluginOptions & {
   commandKeybind?: string
+  language?: WatchdogLanguage
   threshold?: number
   settleMs?: number
   maxContinues?: number
-  judgeAgent?: string
   continuePrompt?: string
   debug?: boolean
 }
@@ -454,13 +474,14 @@ async function validateJudgeAgent(api: TuiPluginApi, judgeAgent: string) {
 const tui: TuiPlugin = async (api, options) => {
   const config = {
     commandKeybind: str((options as WatchdogOptions | undefined)?.commandKeybind, DEFAULT_COMMAND_KEYBIND),
+    language: normalizeLanguage((options as WatchdogOptions | undefined)?.language),
     threshold: num((options as WatchdogOptions | undefined)?.threshold, DEFAULT_THRESHOLD, 0),
     settleMs: num((options as WatchdogOptions | undefined)?.settleMs, DEFAULT_SETTLE_MS, 0),
     maxContinues: num((options as WatchdogOptions | undefined)?.maxContinues, DEFAULT_MAX_CONTINUES, 1),
-    judgeAgent: str((options as WatchdogOptions | undefined)?.judgeAgent, DEFAULT_JUDGE_AGENT),
-    continuePrompt: str((options as WatchdogOptions | undefined)?.continuePrompt, DEFAULT_CONTINUE_PROMPT),
+    continuePrompt: "",
     debug: bool((options as WatchdogOptions | undefined)?.debug, false),
   }
+  config.continuePrompt = str((options as WatchdogOptions | undefined)?.continuePrompt, defaultContinuePrompt(config.language))
 
   const states = new Map<string, WatchdogState>()
   const pendingEnable = new Set<string>()
@@ -472,7 +493,8 @@ const tui: TuiPlugin = async (api, options) => {
   writeLog("plugin-init", {
     version: PLUGIN_VERSION,
     keybind: config.commandKeybind,
-    judgeAgent: config.judgeAgent,
+    judgeAgent: DEFAULT_JUDGE_AGENT,
+    language: config.language,
     threshold: config.threshold,
   })
 
@@ -568,7 +590,7 @@ const tui: TuiPlugin = async (api, options) => {
     state.timer = undefined
   }
 
-  const disableWatchdog = (rootSessionID: string, message?: string, variant: "info" | "warning" | "success" = "info") => {
+  const disableWatchdog = (rootSessionID: string, message?: string, variant: "info" | "warning" | "success" = "warning") => {
     clearTimer(rootSessionID)
     pendingEnable.delete(rootSessionID)
     states.delete(rootSessionID)
@@ -713,8 +735,8 @@ const tui: TuiPlugin = async (api, options) => {
       const judged = await api.client.session.prompt(
         {
           sessionID: judgeSessionID,
-          agent: config.judgeAgent,
-          system: JUDGE_SYSTEM_PROMPT,
+          agent: DEFAULT_JUDGE_AGENT,
+          system: buildJudgeSystemPrompt(config.language),
           format: {
             type: "json_schema",
             schema: JUDGE_RESPONSE_SCHEMA,
@@ -795,7 +817,7 @@ const tui: TuiPlugin = async (api, options) => {
       disableWatchdog(
         rootSessionID,
         `Watchdog auto-paused (${Math.round(result.score)} >= ${latest.threshold}): ${result.reason}`,
-        "info",
+        "success",
       )
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
@@ -847,7 +869,7 @@ const tui: TuiPlugin = async (api, options) => {
       return
     }
 
-    const judgeAgent = await validateJudgeAgent(api, config.judgeAgent)
+    const judgeAgent = await validateJudgeAgent(api, DEFAULT_JUDGE_AGENT)
     const messages = await getSessionMessages(api, root.id)
     const anchor = findAnchor(messages, config.continuePrompt)
     if (!anchor) {
@@ -891,7 +913,7 @@ const tui: TuiPlugin = async (api, options) => {
     syncModeToast(true)
 
     if (!judgeAgent.hidden) {
-      toast(`Judge agent '${config.judgeAgent}' is not hidden. Watchdog still enabled.`, "warning")
+      toast(`Judge agent '${DEFAULT_JUDGE_AGENT}' is not hidden. Watchdog still enabled.`, "warning")
     }
   }
 

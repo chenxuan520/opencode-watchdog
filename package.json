@@ -1,6 +1,6 @@
 {
   "name": "opencode-watchdog",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Toggle-based watchdog judge plugin for the OpenCode TUI",
   "type": "module",
   "license": "MIT",
@@ -33,17 +33,14 @@
     },
     "./server": {
       "types": "./dist/server.d.ts",
-      "import": "./dist/server.js",
-      "config": {
-        "judgeAgent": "watchdog-judge"
-      }
+      "import": "./dist/server.js"
     },
     "./tui": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "config": {
         "commandKeybind": "ctrl+q",
-        "judgeAgent": "watchdog-judge",
+        "language": "zh",
         "threshold": 70,
         "settleMs": 1200,
         "maxContinues": 8
