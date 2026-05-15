@@ -12,7 +12,7 @@ const DEFAULT_LANGUAGE = "zh"
 const SHORT_TOAST_MS = 2500
 const MODE_TOAST_DURATION = 24 * 60 * 60 * 1000
 const TOGGLE_DEBOUNCE_MS = 500
-const PLUGIN_VERSION = "local-dev"
+const PLUGIN_VERSION = "0.1.6"
 const DCP_SUMMARY_PREFIX = "▣ DCP |"
 const AUTO_CONTINUE_ERROR_PROMPT = "继续，刚才执行报错了。请从失败处重试，并继续完成当前任务。"
 const AUTO_CONTINUE_EMPTY_PROMPT = "继续，刚才回复中断了。请接着上一条继续完成，不要重复已经完成的内容。"
@@ -918,10 +918,19 @@ const tui: TuiPlugin = async (api, options) => {
     }
   }
 
-  api.command.register(() => {
+  const resolveCurrentSessionID = () => {
     const route = api.route.current
-    const sessionID = route.name === "session" ? String(route.params?.sessionID || "") : ""
-    const enabled = sessionID ? states.has(sessionID) : false
+    const params = (route as { params?: Record<string, unknown> }).params
+    const sessionID =
+      route.name === "session"
+        ? String(params?.sessionID || "")
+        : String(params?.sessionID || params?.session_id || "")
+    return { route, sessionID }
+  }
+
+  api.command.register(() => {
+    const { route: producerRoute, sessionID: producerSessionID } = resolveCurrentSessionID()
+    const enabled = producerSessionID ? states.has(producerSessionID) : false
     return [
       {
         title: enabled ? "Disable watchdog" : "Enable watchdog",
@@ -932,13 +941,16 @@ const tui: TuiPlugin = async (api, options) => {
         keybind: config.commandKeybind,
         slash: { name: "watchdog" },
         onSelect: () => {
+          const { route, sessionID } = resolveCurrentSessionID()
           writeLog("toggle-invoked", {
             route: route.name,
             sessionID,
+            producerRoute: producerRoute.name,
+            producerSessionID,
             enabled: states.has(sessionID),
             pendingEnable: pendingEnable.has(sessionID),
           })
-          if (route.name !== "session" || !sessionID) {
+          if (!sessionID) {
             toast("/watchdog only works inside a session.", "warning")
             return
           }
