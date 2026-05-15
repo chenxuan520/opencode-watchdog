@@ -12,7 +12,7 @@ const DEFAULT_LANGUAGE = "zh"
 const SHORT_TOAST_MS = 2500
 const MODE_TOAST_DURATION = 24 * 60 * 60 * 1000
 const TOGGLE_DEBOUNCE_MS = 500
-const PLUGIN_VERSION = "0.1.6"
+const PLUGIN_VERSION = "0.1.7"
 const DCP_SUMMARY_PREFIX = "▣ DCP |"
 const AUTO_CONTINUE_ERROR_PROMPT = "继续，刚才执行报错了。请从失败处重试，并继续完成当前任务。"
 const AUTO_CONTINUE_EMPTY_PROMPT = "继续，刚才回复中断了。请接着上一条继续完成，不要重复已经完成的内容。"
@@ -928,7 +928,14 @@ const tui: TuiPlugin = async (api, options) => {
     return { route, sessionID }
   }
 
-  api.command.register(() => {
+  const commandApi = api.command
+  if (!commandApi) {
+    writeLog("command-api-missing", {
+      note: "api.command is undefined (OpenCode v2 keymap-only); watchdog toggle command not registered",
+    })
+  }
+
+  commandApi?.register(() => {
     const { route: producerRoute, sessionID: producerSessionID } = resolveCurrentSessionID()
     const enabled = producerSessionID ? states.has(producerSessionID) : false
     return [
